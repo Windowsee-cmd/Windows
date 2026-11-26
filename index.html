@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0,user-scalable=no"/>
+<title>Windows Server 2022 网页模拟器</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Segoe UI,system-ui,sans-serif;user-select:none}
+body{width:100vw;height:100vh;overflow:hidden;background:#000}
+#desktop{width:100%;height:calc(100% - 42px);background:#1a2838;position:relative}
+/*桌面图标*/
+.dicon{width:76px;text-align:center;position:absolute;cursor:pointer;color:#fff}
+.dicon .ico{font-size:36px}
+.dicon .txt{font-size:12px;margin-top:4px;text-shadow:1px 1px 2px #000}
+/*任务栏*/
+#taskbar{height:42px;background:#161616;position:fixed;bottom:0;left:0;right:0;display:flex;align-items:center;padding:0 4px;z-index:9999}
+#startBtn{width:38px;height:38px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;border-radius:3px}
+#startBtn:hover{background:#2d2d2d}
+.tspacer{flex-grow:1}
+#clock{color:#fff;font-size:12px;padding:0 8px}
+/*开始菜单*/
+#startmenu{position:absolute;bottom:42px;left:0;width:540px;height:560px;background:#1f1f1f;display:none;z-index:9998;padding:10px}
+.appitem{color:#fff;padding:7px 10px;border-radius:3px;cursor:pointer;margin:2px 0}
+.appitem:hover{background:#343434}
+/*窗口样式*/
+.win{position:absolute;width:620px;height:380px;background:#fff;color:#000;box-shadow:0 5px 20px #0007;display:flex;flex-direction:column;overflow:hidden;z-index:100}
+.wintitle{height:30px;background:#00589b;color:#fff;display:flex;align-items:center;padding:0 8px}
+.wintitle-text{flex:1;font-size:13px}
+.winctrl{display:flex}
+.winbtn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.winbtn:hover{background:rgba(255,255,255,0.2)}
+.wincontent{flex:1;overflow:auto;padding:8px;font-size:14px}
+/*终端*/
+.term{background:#000;color:#0f0;font-family:Consolas}
+.term textarea{width:100%;height:100%;background:#000;color:#0f0;border:none;outline:none;padding:6px;font-size:14px}
+/*弹窗*/
+.msgbox{position:absolute;width:320px;height:140px;background:#fff;box-shadow:0 4px 16px #0006;z-index:200;display:flex;flex-direction:column}
+.msgtitle{height:30px;background:#00589b;color:#fff;padding:0 8px;display:flex;align-items:center}
+.msgbody{flex:1;padding:12px;font-size:14px}
+.msgfoot{text-align:right;padding:6px}
+.msgfoot button{padding:3px 12px}
+</style>
+</head>
+<body>
+<div id="desktop">
+  <div class="dicon" style="left:14px;top:14px" data-app="servermanager">
+    <div class="ico">🖥️</div>
+    <div class="txt">服务器管理器</div>
+  </div>
+  <div class="dicon" style="left:14px;top:100px" data-app="powershell">
+    <div class="ico">⌨️</div>
+    <div class="txt">PowerShell</div>
+  </div>
+  <div class="dicon" style="left:14px;top:186px" data-app="notepad">
+    <div class="ico">📄</div>
+    <div class="txt">记事本</div>
+  </div>
+  <div class="dicon" style="left:14px;top:272px" data-app="control">
+    <div class="ico">⚙️</div>
+    <div class="txt">控制面板</div>
+  </div>
+</div>
+
+<div id="taskbar">
+  <div id="startBtn">⊞</div>
+  <div class="tspacer"></div>
+  <div id="clock">00:00</div>
+</div>
+
+<div id="startmenu">
+  <div class="appitem" data-app="servermanager">🖥️ 服务器管理器</div>
+  <div class="appitem" data-app="powershell">⌨️ Windows PowerShell</div>
+  <div class="appitem" data-app="notepad">📄 记事本</div>
+  <div class="appitem" data-app="control">⚙️ 控制面板</div>
+  <div class="appitem" id="shutdown">⏻ 关闭模拟器</div>
+</div>
+
+<script>
+const $ = s=>document.querySelector(s);
+const $$ = s=>document.querySelectorAll(s);
+const startBtn = $("#startBtn");
+const startMenu = $("#startmenu");
+const desktop = $("#desktop");
+const clock = $("#clock");
+
+//时钟
+function updateTime(){
+  let d=new Date();
+  let hh=d.getHours().toString().padStart(2,'0');
+  let mm=d.getMinutes().toString().padStart(2,'0');
+  clock.innerText = `${hh}:${mm}`;
+}
+setInterval(updateTime,1000);
+updateTime();
+
+//开始菜单切换
+startBtn.onclick = ()=>{
+  startMenu.style.display = startMenu.style.display === "block" ? "none" : "block";
+}
+desktop.onclick = ()=>{ startMenu.style.display="none"; }
+
+//打开窗口
+function openWindow(title, htmlContent){
+  const w = document.createElement("div");
+  w.className="win";
+  w.innerHTML = `
+    <div class="wintitle">
+      <div class="wintitle-text">${title}</div>
+      <div class="winctrl">
+        <div class="winbtn close">×</div>
+      </div>
+    </div>
+    <div class="wincontent">${htmlContent}</div>
+  `;
+  desktop.appendChild(w);
+  //关闭
+  w.querySelector(".close").onclick = ()=>w.remove();
+  //拖拽窗口
+  let drag = false,ox,oy;
+  const bar = w.querySelector(".wintitle");
+  bar.onmousedown = e=>{
+    drag=true;
+    ox = e.clientX - w.offsetLeft;
+    oy = e.clientY - w.offsetTop;
+  }
+  document.onmousemove = e=>{
+    if(!drag) return;
+    w.style.left = (e.clientX - ox) + "px";
+    w.style.top = (e.clientY - oy) + "px";
+  }
+  document.onmouseup = ()=> drag=false;
+}
+
+//绑定图标和开始菜单
+$$(".dicon,.appitem").forEach(el=>{
+  el.onclick = ()=>{
+    startMenu.style.display="none";
+    const app = el.dataset.app;
+    switch(app){
+      case "servermanager":
+        openWindow("服务器管理器","<p>服务器仪表板</p><p>角色：未添加IIS、文件服务</p><p>提示：这是模拟界面，无法真实添加服务</p>");
+        break;
+      case "powershell":
+        openWindow("Windows PowerShell","<div class='term'><textarea placeholder='PS C:\\Users\\Administrator> '></textarea></div>");
+        break;
+      case "notepad":
+        openWindow("记事本","<textarea style='width:100%;height:100%;border:none;outline:none' placeholder='在此输入文字...'></textarea>");
+        break;
+      case "control":
+        openWindow("控制面板","<p>系统和安全</p><p>网络和共享中心</p><p>用户账户</p>");
+        break;
+    }
+  }
+})
+$("#shutdown").onclick = ()=>{
+  alert("模拟器已关闭，刷新页面重启");
+  desktop.innerHTML="";
+}
+</script>
+</body>
+</html>
